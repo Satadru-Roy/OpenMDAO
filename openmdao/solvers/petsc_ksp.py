@@ -200,7 +200,7 @@ class PetscKSP(LinearSolver):
 
             ksp.setOperators(jac_mat)
             ksp.setType(self.options['ksp_type'])
-            ksp.setGMRESRestart(1000)
+            ksp.setGMRESRestart(10)
             ksp.setPCSide(PETSc.PC.Side.RIGHT)
             ksp.setMonitor(Monitor(self))
 

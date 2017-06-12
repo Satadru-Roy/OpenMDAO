@@ -39,7 +39,7 @@ OPT, OPTIMIZER = set_pyoptsparse_opt('SNOPT')
 
 
 def snopt_opt(objfun, desvar, lb, ub, ncon, title=None, options=None,
-              sens=None, jac=None):
+              sens='FD', jac=None):
     """ Wrapper function for running a SNOPT optimization through
     pyoptsparse."""
 
@@ -66,10 +66,15 @@ def snopt_opt(objfun, desvar, lb, ub, ncon, title=None, options=None,
         for name, value in iteritems(options):
             opt.setOption(name, value)
 
-    opt.setOption('Major iterations limit', 100)
-    opt.setOption('Verify level', -1)
-    opt.setOption('iSumm', 0)
-    #opt.setOption('iPrint', 0)
+    if OPTIMIZER == 'SNOPT':
+        opt.setOption('Major iterations limit', 100)
+        opt.setOption('Verify level', -1)
+        opt.setOption('iSumm', 0)
+        #opt.setOption('iPrint', 0)
+    elif OPTIMIZER == 'SLSQP':
+        opt.setOption('MAXIT', 100)
+    elif OPTIMIZER == 'CONMIN':
+        opt.setOption('ITMAX', 100)
 
     sol = opt(opt_prob, sens=sens, sensStep=1.0e-6)
     #print(sol)
@@ -80,8 +85,9 @@ def snopt_opt(objfun, desvar, lb, ub, ncon, title=None, options=None,
 
     return x, f, success_flag
 
+
 def snopt_opt2(objfun, desvar, lb, ub, title=None, options=None,
-              sens=None, jac=None):
+              sens='FD', jac=None):
     """ Wrapper function for running a SNOPT optimization through
     pyoptsparse."""
 
@@ -107,10 +113,15 @@ def snopt_opt2(objfun, desvar, lb, ub, title=None, options=None,
         for name, value in iteritems(options):
             opt.setOption(name, value)
 
-    opt.setOption('Major iterations limit', 100)
-    opt.setOption('Verify level', -1)
-    opt.setOption('iSumm', 0)
-    #opt.setOption('iPrint', 0)
+    if OPTIMIZER == 'SNOPT':
+        opt.setOption('Major iterations limit', 100)
+        opt.setOption('Verify level', -1)
+        opt.setOption('iSumm', 0)
+        #opt.setOption('iPrint', 0)
+    elif OPTIMIZER == 'SLSQP':
+        opt.setOption('MAXIT', 100)
+    elif OPTIMIZER == 'CONMIN':
+        opt.setOption('ITMAX', 100)
 
     sol = opt(opt_prob, sens=sens, sensStep=1.0e-6)
     #print(sol)
@@ -121,6 +132,7 @@ def snopt_opt2(objfun, desvar, lb, ub, title=None, options=None,
     msg = sol.optInform['text']
 
     return x, f, success_flag, msg
+
 
 class Branch_and_Bound(Driver):
     """ Class definition for the Branch_and_Bound driver. This driver can be run
@@ -589,6 +601,13 @@ class Branch_and_Bound(Driver):
         encapsulates the portion of the code that runs in parallel.
         """
 
+        if OPTIMIZER == 'SNOPT':
+            options = {'Major optimality tolerance' : 1.0e-8}
+        elif OPTIMIZER == 'SLSQP':
+            options = {'ACC' : 1.0e-8}
+        elif OPTIMIZER == 'CONMIN':
+            options = {'DABFUN' : 1.0e-8}
+
         active_tol = self.options['active_tol']
         local_search = self.options['local_search']
         disp = self.options['disp']
@@ -633,7 +652,7 @@ class Branch_and_Bound(Driver):
 
                 xC_iter = xloc_iter
                 opt_x, opt_f, succ_flag, msg = snopt_opt2(_objcall, xC_iter, xL_iter, xU_iter, title='LocalSearch',
-                                         options={'Major optimality tolerance' : 1.0e-8})
+                                         options=options)
 
                 xloc_iter_new = np.round(np.asarray(opt_x).flatten())
                 floc_iter_new = self.objective_callback(xloc_iter_new)
@@ -854,6 +873,14 @@ class Branch_and_Bound(Driver):
         """This method finds an upper bound to the SigmaSqr Error, and scales
         up 'r' to provide a smooth design space for gradient-based approach.
         """
+
+        if OPTIMIZER == 'SNOPT':
+            options = {'Major optimality tolerance' : 1.0e-8}
+        elif OPTIMIZER == 'SLSQP':
+            options = {'ACC' : 1.0e-8}
+        elif OPTIMIZER == 'CONMIN':
+            options = {'DABFUN' : 1.0e-8}
+
         R_inv = surrogate.R_inv
         SigmaSqr = surrogate.SigmaSqr
         X = surrogate.X
@@ -921,7 +948,7 @@ class Branch_and_Bound(Driver):
             opt_x, opt_f, succ_flag = snopt_opt(self.calc_SSqr_convex, x0, xhat_comL,
                                                 xhat_comU, len(bin_hat),
                                                 title='Maximize_S',
-                                                options={'Major optimality tolerance' : self.options['ftol']},
+                                                options=options,
                                                 jac=Ain_hat,
                                                 ) #sens=self.calc_SSqr_convex_grad)
 
@@ -1069,6 +1096,13 @@ class Branch_and_Bound(Driver):
 
     def minimize_y(self, x_comL, x_comU, Ain_hat, bin_hat, surrogate):
 
+        if OPTIMIZER == 'SNOPT':
+            options = {'Major optimality tolerance' : 1.0e-8}
+        elif OPTIMIZER == 'SLSQP':
+            options = {'ACC' : 1.0e-8}
+        elif OPTIMIZER == 'CONMIN':
+            options = {'DABFUN' : 1.0e-8}
+
         # 1- Formulates y_hat as LP (weaker bound)
         # 2- Uses non-convex relaxation technique (stronger bound) [Future release]
         app = 1
@@ -1100,7 +1134,7 @@ class Branch_and_Bound(Driver):
             opt_x, opt_f, succ_flag = snopt_opt(self.calc_y_hat_convex, x0, xhat_comL,
                                                 xhat_comU, len(bin_hat),
                                                 title='minimize_y',
-                                                options={'Major optimality tolerance' : self.options['ftol']},
+                                                options=options,
                                                 jac=Ain_hat)
 
             yL = opt_f

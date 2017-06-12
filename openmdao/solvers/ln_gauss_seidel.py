@@ -127,8 +127,8 @@ class LinearGaussSeidel(LinearSolver):
                         #      'du', dumat[voi].vec, 'dr', drmat[voi].vec)
                         system._transfer_data(sub.name, deriv=True,
                                               var_of_interest=voi)
-                        #print('pre apply', sub.pathname, 'dp', dpmat[voi].vec,
-                        #      'du', dumat[voi].vec, 'dr', drmat[voi].vec)
+                        print('pre apply', sub.pathname, 'dp', dpmat[voi].vec,
+                              'du', dumat[voi].vec, 'dr', drmat[voi].vec)
 
                     # we need to loop over all subsystems in order to make
                     # the necessary collective calls to scatter, but only
@@ -143,8 +143,8 @@ class LinearGaussSeidel(LinearSolver):
                     sub._sys_apply_linear(mode, system._do_apply, vois=vois,
                                           gs_outputs=gs_outputs['fwd'][sub.name])
 
-                    # for voi in vois:
-                    #    print('post apply', dpmat[voi].vec, dumat[voi].vec, drmat[voi].vec)
+                    for voi in vois:
+                       print('post apply', dpmat[voi].vec, dumat[voi].vec, drmat[voi].vec)
 
                     for voi in vois:
                         drmat[voi].vec *= -1.0
@@ -154,8 +154,8 @@ class LinearGaussSeidel(LinearSolver):
                     with sub._dircontext:
                         sub.solve_linear(sub.dumat, sub.drmat, vois, mode=mode)
 
-                    # for voi in vois:
-                    #    print('post solve', dpmat[voi].vec, dumat[voi].vec, drmat[voi].vec)
+                    for voi in vois:
+                       print('post solve', dpmat[voi].vec, dumat[voi].vec, drmat[voi].vec)
 
                 for voi in vois:
                     sol_buf[voi] = dumat[voi].vec
