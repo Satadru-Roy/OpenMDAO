@@ -1,5 +1,6 @@
 """
 OpenMDAO Wrapper for pyoptsparse.
+
 pyoptsparse is based on pyOpt, which is an object-oriented framework for
 formulating and solving nonlinear constrained optimization problems, with
 additional MPI capability.
@@ -54,8 +55,8 @@ class pyOptSparseDriver(Driver):
     SNOPT, NLPY_AUGLAG, NOMAD.
     Note that some of these are not open source and therefore not included
     in the pyoptsparse source code.
-
     pyOptSparseDriver supports the following:
+
         equality_constraints
 
         inequality_constraints
@@ -368,7 +369,7 @@ class pyOptSparseDriver(Driver):
         full_param_conns : dict
             Parameter full connection info.
         rels : set
-            Set of relevant nodes for this connstraint.
+            Set of relevant nodes for this constraint.
 
         Returns
         -------
@@ -441,7 +442,6 @@ class pyOptSparseDriver(Driver):
         -------
         func_dict : dict
             Dictionary of all functional variables evaluated at design point.
-
         fail : int
             0 for successful function evaluation
             1 for unsuccessful function evaluation
@@ -504,7 +504,6 @@ class pyOptSparseDriver(Driver):
         ----
         dv_dict : dict
             Dictionary of design variable values.
-
         func_dict : dict
             Dictionary of all functional variables evaluated at design point.
 
@@ -512,7 +511,6 @@ class pyOptSparseDriver(Driver):
         -------
         sens_dict : dict
             Dictionary of dictionaries for gradient of each dv/func pair
-
         fail : int
             0 for successful function evaluation
             1 for unsuccessful function evaluation

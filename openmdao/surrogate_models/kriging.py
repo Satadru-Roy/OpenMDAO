@@ -115,10 +115,8 @@ class KrigingSurrogate(SurrogateModel):
         ----
         x : array-like
             Training input locations
-
         y : array-like
             Model responses at given inputs.
-
         KPLS_status : Boolean
             False when KPLS is not added to Kriging (default)
             True Adds KPLS method to Kriging to reduce the number of hyper-parameters

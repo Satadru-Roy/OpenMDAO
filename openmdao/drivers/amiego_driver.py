@@ -50,7 +50,6 @@ class AMIEGO_driver(Driver):
     options['max_infill_points'] : 10
         Ratio of maximum number of additional points to number of initial
         points.
-
     """
 
     def __init__(self):
