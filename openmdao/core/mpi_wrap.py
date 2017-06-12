@@ -100,6 +100,10 @@ class FakeComm(object):
         """ Signature for recv"""
         return name
 
+    def allreduce(self, sendbuf, op=None):
+        """ Signature for Allreduce"""
+        pass
+
 @contextmanager
 def MultiProcFailCheck(comm):
     """ Wrap this around code that you want to globally fail if it fails
