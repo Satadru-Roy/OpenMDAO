@@ -353,6 +353,7 @@ class AMIEGO_driver(Driver):
                 cont_opt.trip = x_i[i_run]
 
                 # Optimize continuous variables
+                self.pre_cont_opt_hook()
                 cont_opt.run(problem)
                 eflag_conopt = cont_opt.success
                 if disp:
@@ -556,3 +557,7 @@ class AMIEGO_driver(Driver):
             print("Best Integer designs: ", best_int_design)
             print("Corresponding continuous designs: ", best_cont_design)
             print("=====================================================")
+
+    def pre_cont_opt_hook(self):
+        """ Override this to perform any pre-continuous-optimization operations."""
+        pass
