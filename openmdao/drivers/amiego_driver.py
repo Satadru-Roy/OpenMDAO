@@ -107,6 +107,7 @@ class AMIEGO_driver(Driver):
         # NOTE: when running in this mode, everything comes in as lists.
         self.obj_sampling = None
         self.con_sampling = None
+        self.sampling_eflag = None
 
     def _setup(self):
         """  Initialize whatever we need."""
@@ -273,9 +274,15 @@ class AMIEGO_driver(Driver):
             obj = self.obj_sampling[obj_name]
             cons = self.con_sampling
 
+            lowest = 0
+            if self.sampling_eflag is not None:
+                for j, val in enumerate(obj):
+                    if self.sampling_eflag[j] == 1 and (val < obj[lowest]):
+                        lowest = j
+
             # Satadru's suggestion is that we start with the first point as
             # the best obj.
-            best_obj = obj[0].copy()
+            best_obj = obj[lowest].copy()
 
         # Prepare to optimize the initial sampling points
         else:

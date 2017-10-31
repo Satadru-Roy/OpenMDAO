@@ -542,10 +542,12 @@ class pyOptSparseDriver(Driver):
                         inactives[name] = inactive_idx
 
             try:
+                print("Start FD")
                 sens_dict = self.calc_gradient(dv_dict, self.quantities,
                                                return_format='dict',
                                                sparsity=self.sparsity,
                                                inactives=inactives)
+                print("End FD")
 
             # Let the optimizer try to handle the error
             except AnalysisError:
