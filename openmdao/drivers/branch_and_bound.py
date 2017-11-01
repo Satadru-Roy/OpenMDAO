@@ -70,7 +70,7 @@ def snopt_opt(objfun, desvar, lb, ub, ncon, title=None, options=None,
         opt.setOption('Major iterations limit', 100)
         opt.setOption('Verify level', -1)
         opt.setOption('iSumm', 0)
-        #opt.setOption('iPrint', 0)
+        opt.setOption('iPrint', 0)
     elif OPTIMIZER == 'SLSQP':
         opt.setOption('MAXIT', 100)
     elif OPTIMIZER == 'CONMIN':
@@ -117,7 +117,7 @@ def snopt_opt2(objfun, desvar, lb, ub, title=None, options=None,
         opt.setOption('Major iterations limit', 100)
         opt.setOption('Verify level', -1)
         opt.setOption('iSumm', 0)
-        #opt.setOption('iPrint', 0)
+        opt.setOption('iPrint', 0)
     elif OPTIMIZER == 'SLSQP':
         opt.setOption('MAXIT', 100)
     elif OPTIMIZER == 'CONMIN':
