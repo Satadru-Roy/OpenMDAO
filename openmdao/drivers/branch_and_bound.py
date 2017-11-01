@@ -659,6 +659,7 @@ class Branch_and_Bound(Driver):
                 if floc_iter_new < floc_iter:
                     floc_iter = floc_iter_new
                     xloc_iter = xloc_iter_new
+
         #--------------------------------------------------------------
         # Step 3: Partition the current rectangle as per the new
         # branching scheme.
@@ -778,11 +779,11 @@ class Branch_and_Bound(Driver):
                 child_info[ii] = np.array([par_node, np.inf, floc_iter])
                 dis_flag[ii] = 'x' #Flag for No child created
 
-            #Update the active set whenever better solution found
-            if floc_iter < UBD:
-                UBD = floc_iter
-                fopt = floc_iter
-                xopt = xloc_iter.copy().reshape(num_des)
+        #Update the active set whenever better solution found
+        if floc_iter < UBD:
+            UBD = floc_iter
+            fopt = floc_iter
+            xopt = xloc_iter.copy().reshape(num_des)
 
         if disp:
             if (self.iter_count-1) % 25 == 0:
