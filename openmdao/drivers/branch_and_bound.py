@@ -70,7 +70,7 @@ def snopt_opt(objfun, desvar, lb, ub, ncon, title=None, options=None,
         opt.setOption('Major iterations limit', 100)
         opt.setOption('Verify level', -1)
         opt.setOption('iSumm', 0)
-        #opt.setOption('iPrint', 0)
+        opt.setOption('iPrint', 0)
     elif OPTIMIZER == 'SLSQP':
         opt.setOption('MAXIT', 100)
     elif OPTIMIZER == 'CONMIN':
@@ -533,7 +533,7 @@ class Branch_and_Bound(Driver):
                 active_set = update_active_set(active_set, UBD)
 
             # Termination
-            if False and len(active_set) >= 1:
+            if len(active_set) >= 1:
                 # Update LBD and select the current rectangle
 
                 args = []
