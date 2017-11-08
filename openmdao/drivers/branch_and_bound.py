@@ -602,11 +602,11 @@ class Branch_and_Bound(Driver):
         """
 
         if OPTIMIZER == 'SNOPT':
-            options = {'Major optimality tolerance' : 1.0e-8}
+            options = {'Major optimality tolerance' : 1.0e-5}
         elif OPTIMIZER == 'SLSQP':
-            options = {'ACC' : 1.0e-8}
+            options = {'ACC' : 1.0e-5}
         elif OPTIMIZER == 'CONMIN':
-            options = {'DABFUN' : 1.0e-8}
+            options = {'DABFUN' : 1.0e-5}
 
         active_tol = self.options['active_tol']
         local_search = self.options['local_search']
@@ -876,11 +876,11 @@ class Branch_and_Bound(Driver):
         """
 
         if OPTIMIZER == 'SNOPT':
-            options = {'Major optimality tolerance' : 1.0e-8}
+            options = {'Major optimality tolerance' : 1.0e-5}
         elif OPTIMIZER == 'SLSQP':
-            options = {'ACC' : 1.0e-8}
+            options = {'ACC' : 1.0e-5}
         elif OPTIMIZER == 'CONMIN':
-            options = {'DABFUN' : 1.0e-8}
+            options = {'DABFUN' : 1.0e-5}
 
         R_inv = surrogate.R_inv
         SigmaSqr = surrogate.SigmaSqr
