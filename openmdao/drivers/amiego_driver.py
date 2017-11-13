@@ -400,19 +400,11 @@ class AMIEGO_driver(Driver):
             #------------------------------------------------------------------
             # Step 3: Build the surrogate models
             #------------------------------------------------------------------
-            obj_surrogate = self.surrogate()
-            obj_surrogate.comm = problem.root.comm
-            obj_surrogate.use_snopt = True
-            obj_surrogate.train(x_i, obj, KPLS_status=True)
-
-            obj_surrogate.y = obj
-            obj_surrogate.lb_org = xI_lb
-            obj_surrogate.ub_org = xI_ub
-            obj_surrogate.lb = np.zeros((n_i))
-            obj_surrogate.ub = np.zeros((n_i))
-            best_obj_norm = (best_obj - obj_surrogate.Y_mean)/obj_surrogate.Y_std
-
-            con_surrogate = []
+            n = len(x_i)
+            P = np.zeros((n,1))
+            num_vio = np.zeros((n,1))
+            obj_surr = np.zeros((n,1))
+            r_pen = 5.0 #TODO Future research
             for name, val in iteritems(cons):
                 val = np.array(val)
 
@@ -432,28 +424,34 @@ class AMIEGO_driver(Driver):
                     val_u = val - upper
                     val_l = lower - val
 
-                for j in range(val.shape[1]):
-                    con_surr = self.surrogate()
-                    con_surr.comm = problem.root.comm
-                    con_surr.use_snopt = True
+                # Newly added to make the problem appear unconstrained to Amiego
+                M = val.shape[1]
+                for ii in range(n):
+                    for mm in range(M):
+                        if val[ii][mm] > 0:
+                            P[ii] += (val[ii][mm])**2
+                            num_vio[ii] += 1
 
-                    if double_sided:
-                        val_idx = max(val_u[:, j:j+1], val_l[:, j:j+1])
-                    else:
-                        val_idx = val[:, j:j+1]
+            for ii in range(n):
+                if num_vio[ii] > 1.0e-6:
+                    obj_surr[ii] = obj[ii]/(1.0 + r_pen*P[ii]/num_vio[ii])
 
-                    con_surr.train(x_i, val_idx, True)
+            obj_surrogate = self.surrogate()
+            obj_surrogate.comm = problem.root.comm
+            obj_surrogate.use_snopt = True
+            obj_surrogate.train(x_i, obj_surr, KPLS_status=True)
 
-                    con_surr.y = val_idx
-                    con_surr._name = name
-                    con_surr.lb_org = xI_lb
-                    con_surr.ub_org = xI_ub
-                    con_surr.lb = np.zeros((n_i))
-                    con_surr.ub = np.zeros((n_i))
-                    con_surrogate.append(con_surr)
+            obj_surrogate.y = obj
+            obj_surrogate.lb_org = xI_lb
+            obj_surrogate.ub_org = xI_ub
+            obj_surrogate.lb = np.zeros((n_i))
+            obj_surrogate.ub = np.zeros((n_i))
+            best_obj_norm = (best_obj - obj_surrogate.Y_mean)/obj_surrogate.Y_std
+
+            con_surrogate = []
 
             if disp:
-                print("\nSurrogate building of the objective and constraints is complete...")
+                print("\nSurrogate building of the objective is complete...")
                 print('Elapsed Time:', time() - t0)
 
             #------------------------------------------------------------------
@@ -462,7 +460,7 @@ class AMIEGO_driver(Driver):
             #------------------------------------------------------------------
 
             if disp:
-                print("EGOLF-Iter: %d" % self.iter_count)
+                print("AMIEGO-Iter: %d" % self.iter_count)
                 print("The best solution so far: yopt = %0.4f" % best_obj)
 
             tot_newpt_added += c_end - c_start
