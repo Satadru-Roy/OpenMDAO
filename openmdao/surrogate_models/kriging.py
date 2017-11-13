@@ -198,8 +198,8 @@ class KrigingSurrogate(SurrogateModel):
             if not result[0]:
                 print(result[1])
 
-        thetas = [item[0][0] for item in results]
-        fval = [item[0][1] for item in results]
+        thetas = [item[0][0] for item in results if item[0] is not None]
+        fval = [item[0][1] for item in results if item[0] is not None]
 
         idx = fval.index(min(fval))
         self.thetas = np.dot((self.Wstar**2), thetas[idx].T).flatten()

@@ -402,8 +402,7 @@ class AMIEGO_driver(Driver):
             #------------------------------------------------------------------
             n = len(x_i)
             P = np.zeros((n,1))
-            num_vio = np.zeros((n,1))
-            obj_surr = np.zeros((n,1))
+            num_vio = np.zeros((n, 1), dtype=np.int)
             r_pen = 5.0 #TODO Future research
             for name, val in iteritems(cons):
                 val = np.array(val)
@@ -433,13 +432,13 @@ class AMIEGO_driver(Driver):
                             num_vio[ii] += 1
 
             for ii in range(n):
-                if num_vio[ii] > 1.0e-6:
-                    obj_surr[ii] = obj[ii]/(1.0 + r_pen*P[ii]/num_vio[ii])
+                if num_vio[ii] > 0:
+                    obj[ii] = obj[ii]/(1.0 + r_pen*P[ii]/num_vio[ii])
 
             obj_surrogate = self.surrogate()
             obj_surrogate.comm = problem.root.comm
             obj_surrogate.use_snopt = True
-            obj_surrogate.train(x_i, obj_surr, KPLS_status=True)
+            obj_surrogate.train(x_i, obj, KPLS_status=True)
 
             obj_surrogate.y = obj
             obj_surrogate.lb_org = xI_lb
