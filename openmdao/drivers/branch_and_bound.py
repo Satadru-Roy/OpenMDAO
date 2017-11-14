@@ -21,6 +21,7 @@ from collections import OrderedDict
 from six import iteritems
 from six.moves import range
 from random import uniform
+from pyDOE import *
 
 import numpy as np
 from scipy.optimize import minimize
@@ -431,12 +432,12 @@ class Branch_and_Bound(Driver):
         xL_iter = self.xI_lb.copy()
         xU_iter = self.xI_ub.copy()
 
-        #TODO: Generate as many random samples as number of available procs in parallel
-        #TODO: Use some intelligent sampling rather than random
+        #TODO: Generate as many LHS samples as number of available procs in parallel
         # Initial (good) optimal objective and solution
-        # Randomly generate some integer points
-        for ii in range(10*num_des):
-            xopt_ii = np.round(xL_iter + np.random.random(num_des)*(xU_iter - xL_iter)).reshape(num_des)
+        num_init_sam = 10*num_des
+        init_sam = lhs(num_des,samples = num_init_sam,criterion='center')
+        for ii in range(num_init_sam):
+            xopt_ii = np.round(xL_iter + init_sam[ii]*(xU_iter - xL_iter)).reshape(num_des)
             # Use this one for verification against matlab
             # xopt = 2.0*np.ones((num_des))
             fopt_ii = self.objective_callback(xopt_ii)
@@ -621,163 +622,169 @@ class Branch_and_Bound(Driver):
         #Keep this to 0.49 to always round towards bottom-left
         xloc_iter = np.round(xL_iter + 0.49*(xU_iter - xL_iter))
         floc_iter = self.objective_callback(xloc_iter)
-        #Sample few more points based on ubd_count and priority_flag
-        agg_fac = [0.5,1.0,1.5]
-        ubd_denom = self.options['maxiter_ubd']/len(agg_fac)
-        num_samples = np.round(agg_fac[int(np.floor(ubd_count/ubd_denom))]*(1 + 3*nodeHist.priority_flag)*3*num_des)
+        efloc_iter = True
+        # #Sample few more points based on ubd_count and priority_flag
+        # agg_fac = [0.5,1.0,1.5]
+        # ubd_denom = self.options['maxiter_ubd']/len(agg_fac)
+        # num_samples = np.round(agg_fac[int(np.floor(ubd_count/ubd_denom))]*(1 + 3*nodeHist.priority_flag)*3*num_des)
+        num_samples = np.round(np.max([10,np.min([50,num_des/1*nodeHist.priority_flag])])) #TODO Future research
+        init_sam_node = lhs(num_des,samples=num_samples,criterion='center')
+        l_succ = 0
         for ii in range(int(num_samples)):
-            xloc_iter_new = np.round(xL_iter + np.random.random(num_des)*(xU_iter - xL_iter))
+            xloc_iter_new = np.round(xL_iter + init_sam_node[ii]*(xU_iter - xL_iter))
             floc_iter_new = self.objective_callback(xloc_iter_new)
+
+            if local_search:
+                trace_iter = 5
+                if np.abs(floc_iter_new) > -np.inf: #active_tol: #Perform at non-flat starting point
+                    l_succ+=1
+                    #--------------------------------------------------------------
+                    #Step 2: Obtain a local solution
+                    #--------------------------------------------------------------
+                    # Using a gradient-based method here.
+                    # TODO: Make it more pluggable.
+                    def _objcall(dv_dict):
+                        """ Callback function"""
+                        fail = 0
+                        x = dv_dict['x']
+                        # Objective
+                        func_dict = {}
+                        confac_flag = True
+                        func_dict['obj'] = self.objective_callback(x,confac_flag)[0]
+                        return func_dict, fail
+
+                    xC_iter = xloc_iter_new
+                    opt_x, opt_f, succ_flag, msg = snopt_opt2(_objcall, xC_iter, xL_iter, xU_iter, title='LocalSearch',
+                                             options=options)
+
+                    xloc_iter_new = np.round(np.asarray(opt_x).flatten())
+                    floc_iter_new = self.objective_callback(xloc_iter_new)
+
             if floc_iter_new < floc_iter:
                 floc_iter = floc_iter_new
                 xloc_iter = xloc_iter_new
-        efloc_iter = True
-        if local_search:
-            trace_iter = 3
-            if np.abs(floc_iter) > active_tol: #Perform at non-flat starting point
-                #--------------------------------------------------------------
-                #Step 2: Obtain a local solution
-                #--------------------------------------------------------------
-                # Using a gradient-based method here.
-                # TODO: Make it more pluggable.
-                def _objcall(dv_dict):
-                    """ Callback function"""
-                    fail = 0
-                    x = dv_dict['x']
-                    # Objective
-                    func_dict = {}
-                    confac_flag = False
-                    func_dict['obj'] = self.objective_callback(x)[0]
-                    return func_dict, fail
 
-                xC_iter = xloc_iter
-                opt_x, opt_f, succ_flag, msg = snopt_opt2(_objcall, xC_iter, xL_iter, xU_iter, title='LocalSearch',
-                                         options=options)
-
-                xloc_iter_new = np.round(np.asarray(opt_x).flatten())
-                floc_iter_new = self.objective_callback(xloc_iter_new)
-                if floc_iter_new < floc_iter:
-                    floc_iter = floc_iter_new
-                    xloc_iter = xloc_iter_new
-
-        #--------------------------------------------------------------
-        # Step 3: Partition the current rectangle as per the new
-        # branching scheme.
-        #--------------------------------------------------------------
-        child_info = np.zeros([2, 3])
-        dis_flag = [' ', ' ']
-
-        # Choose
-        l_iter = (xU_iter - xL_iter).argmax()
-
-        if xloc_iter[l_iter]<xU_iter[l_iter]:
-            delta = 0.5 #0<delta<1
+        # Do some prechecks before commencing for partitioning
+        ubdloc_best = nodeHist.ubdloc_best
+        if nodeHist.ubdloc_best > floc_iter + 1.0e-6:
+            ubd_track = np.concatenate((nodeHist.ubd_track,np.array([1])),axis=0)
+            ubdloc_best = floc_iter
         else:
-            delta = -0.5 #-1<delta<0
+            ubd_track = np.concatenate((nodeHist.ubd_track,np.array([0])),axis=0)
+        # diff_LBD = abs(LBD_prev - LBD_NegConEI)
+        if len(ubd_track) >= trace_iter and np.sum(ubd_track[-trace_iter:])==0: #and UBD<=-1.0e-3:
+            child_info = np.array([[par_node, np.inf, floc_iter],[par_node, np.inf, floc_iter]])
+            dis_flag = ['Y', 'Y'] #Fathomed due to no change in UBD_loc for 'trace_iter' generations
+        else:
+            #--------------------------------------------------------------
+            # Step 3: Partition the current rectangle as per the new
+            # branching scheme.
+            #--------------------------------------------------------------
+            child_info = np.zeros([2, 3])
+            dis_flag = [' ', ' ']
 
-        for ii in range(2):
-            lb = xL_iter.copy()
-            ub = xU_iter.copy()
-            if ii == 0:
-                ub[l_iter] = np.floor(xloc_iter[l_iter]+delta)
-            elif ii == 1:
-                lb[l_iter] = np.ceil(xloc_iter[l_iter]+delta)
+            # Choose
+            l_iter = (xU_iter - xL_iter).argmax()
 
-            if np.linalg.norm(ub - lb) > active_tol: #Not a point
-                #--------------------------------------------------------------
-                # Step 4: Obtain an LBD of f in the newly created node
-                #--------------------------------------------------------------
-                S4_fail = False
-                x_comL, x_comU, Ain_hat, bin_hat = gen_coeff_bound(lb, ub, obj_surrogate)
-                sU, eflag_sU = self.maximize_S(x_comL, x_comU, Ain_hat, bin_hat,
-                                               obj_surrogate)
+            if xloc_iter[l_iter]<xU_iter[l_iter]:
+                delta = 0.5 #0<delta<1
+            else:
+                delta = -0.5 #-1<delta<0
 
-                if eflag_sU:
-                    yL, eflag_yL = self.minimize_y(x_comL, x_comU, Ain_hat, bin_hat,
+            for ii in range(2):
+                lb = xL_iter.copy()
+                ub = xU_iter.copy()
+                if ii == 0:
+                    ub[l_iter] = np.floor(xloc_iter[l_iter]+delta)
+                elif ii == 1:
+                    lb[l_iter] = np.ceil(xloc_iter[l_iter]+delta)
+
+                if np.linalg.norm(ub - lb) > active_tol: #Not a point
+                    #--------------------------------------------------------------
+                    # Step 4: Obtain an LBD of f in the newly created node
+                    #--------------------------------------------------------------
+                    S4_fail = False
+                    x_comL, x_comU, Ain_hat, bin_hat = gen_coeff_bound(lb, ub, obj_surrogate)
+                    sU, eflag_sU = self.maximize_S(x_comL, x_comU, Ain_hat, bin_hat,
                                                    obj_surrogate)
 
-                    if eflag_yL:
-                        NegEI = calc_conEI_norm([], obj_surrogate, SSqr=sU, y_hat=yL)
+                    if eflag_sU:
+                        yL, eflag_yL = self.minimize_y(x_comL, x_comU, Ain_hat, bin_hat,
+                                                       obj_surrogate)
 
-                        M = len(self.con_surrogate)
-                        if M>0:
-                            EV = np.zeros([M, 1])
-                        # Expected constraint violation
-                        for mm in range(M):
-                            x_comL, x_comU, Ain_hat, bin_hat = gen_coeff_bound(lb, ub, con_surrogate[mm])
-                            sU_g, eflag_sU_g = self.maximize_S(x_comL, x_comU, Ain_hat,
-                                                               bin_hat, con_surrogate[mm])
+                        if eflag_yL:
+                            NegEI = calc_conEI_norm([], obj_surrogate, SSqr=sU, y_hat=yL)
 
-                            if eflag_sU_g:
-                                yL_g, eflag_yL_g = self.minimize_y(x_comL, x_comU, Ain_hat,
+                            M = len(self.con_surrogate)
+                            if M>0:
+                                EV = np.zeros([M, 1])
+                            # Expected constraint violation
+                            for mm in range(M):
+                                x_comL, x_comU, Ain_hat, bin_hat = gen_coeff_bound(lb, ub, con_surrogate[mm])
+                                sU_g, eflag_sU_g = self.maximize_S(x_comL, x_comU, Ain_hat,
                                                                    bin_hat, con_surrogate[mm])
-                                if eflag_yL_g:
-                                    EV[mm] = calc_conEV_norm(None,
-                                                             con_surrogate[mm],
-                                                             gSSqr=-sU_g,
-                                                             g_hat=yL_g)
-                                    # cub = np.max(con_surrogate[mm].Y)
-                                    # clb = np.min(con_surrogate[mm].Y)
-                                    # EV[mm] = (EV[mm] - clb)/(cub - clb)
+
+                                if eflag_sU_g:
+                                    yL_g, eflag_yL_g = self.minimize_y(x_comL, x_comU, Ain_hat,
+                                                                       bin_hat, con_surrogate[mm])
+                                    if eflag_yL_g:
+                                        EV[mm] = calc_conEV_norm(None,
+                                                                 con_surrogate[mm],
+                                                                 gSSqr=-sU_g,
+                                                                 g_hat=yL_g)
+                                        # cub = np.max(con_surrogate[mm].Y)
+                                        # clb = np.min(con_surrogate[mm].Y)
+                                        # EV[mm] = (EV[mm] - clb)/(cub - clb)
+                                    else:
+                                        S4_fail = True
+                                        break
                                 else:
                                     S4_fail = True
                                     break
-                            else:
-                                S4_fail = True
-                                break
+                        else:
+                            S4_fail = True
                     else:
                         S4_fail = True
-                else:
-                    S4_fail = True
 
-                # Convex approximation failed!
-                if S4_fail:
-                    if efloc_iter:
-                        LBD_NegConEI = LBD_prev
+                    # Convex approximation failed!
+                    if S4_fail:
+                        if efloc_iter:
+                            LBD_NegConEI = LBD_prev
+                        else:
+                            LBD_NegConEI = np.inf
+                        dis_flag[ii] = 'F'
                     else:
-                        LBD_NegConEI = np.inf
-                    dis_flag[ii] = 'F'
-                else:
-                    if M>0:
-                        LBD_NegConEI = max(NegEI/(1.0 + np.sum(EV/M)), LBD_prev)
+                        if M>0:
+                            LBD_NegConEI = max(NegEI/(1.0 + np.sum(EV/M)), LBD_prev)
+                        else:
+                            LBD_NegConEI = max(NegEI, LBD_prev)
+
+                    #--------------------------------------------------------------
+                    # Step 5: Store any new node inside the active set that has LBD
+                    # lower than the UBD.
+                    #--------------------------------------------------------------
+
+                    priority_flag = np.ceil(abs(UBD - LBD_NegConEI))
+
+                    nodeHist_new = nodeHistclass()
+                    nodeHist_new.ubd_track = ubd_track
+                    nodeHist_new.ubdloc_best = ubdloc_best
+                    nodeHist_new.priority_flag = priority_flag
+
+                    if LBD_NegConEI < UBD - 1.0e-6:
+                        node_num += 1
+                        new_node = [node_num, lb, ub, LBD_NegConEI, floc_iter, nodeHist_new]
+                        new_nodes.append(new_node)
+                        child_info[ii] = np.array([node_num, LBD_NegConEI, floc_iter])
                     else:
-                        LBD_NegConEI = max(NegEI, LBD_prev)
-
-                #--------------------------------------------------------------
-                # Step 5: Store any new node inside the active set that has LBD
-                # lower than the UBD.
-                #--------------------------------------------------------------
-                ubdloc_best = nodeHist.ubdloc_best
-                if nodeHist.ubdloc_best > floc_iter + 1.0e-6:
-                    ubd_track = np.concatenate((nodeHist.ubd_track,np.array([1])),axis=0)
-                    ubdloc_best = floc_iter
+                        child_info[ii] = np.array([par_node, LBD_NegConEI, floc_iter])
+                        dis_flag[ii] = 'X' #Flag for child created but not added to active set (fathomed)
                 else:
-                    ubd_track = np.concatenate((nodeHist.ubd_track,np.array([0])),axis=0)
-                diff_LBD = abs(LBD_prev - LBD_NegConEI)
-                if len(ubd_track) >= trace_iter and np.sum(ubd_track[-trace_iter:])==0 and UBD<=-1.0e-3:
-                    LBD_NegConEI = np.inf
-                priority_flag = 0
-                if diff_LBD<=0.5:
-                    priority_flag = 1 #Heavily explore this node
-                nodeHist_new = nodeHistclass()
-                nodeHist_new.ubd_track = ubd_track
-                nodeHist_new.ubdloc_best = ubdloc_best
-                nodeHist_new.priority_flag = priority_flag
-
-                if LBD_NegConEI < UBD - 1.0e-6:
-                    node_num += 1
-                    new_node = [node_num, lb, ub, LBD_NegConEI, floc_iter, nodeHist_new]
-                    new_nodes.append(new_node)
-                    child_info[ii] = np.array([node_num, LBD_NegConEI, floc_iter])
-                else:
-                    child_info[ii] = np.array([par_node, LBD_NegConEI, floc_iter])
-                    dis_flag[ii] = 'X' #Flag for child created but not added to active set (fathomed)
-            else:
-                if ii == 1:
-                    xloc_iter = ub
-                    floc_iter = self.objective_callback(xloc_iter)
-                child_info[ii] = np.array([par_node, np.inf, floc_iter])
-                dis_flag[ii] = 'x' #Flag for No child created
+                    if ii == 1:
+                        xloc_iter = ub
+                        floc_iter = self.objective_callback(xloc_iter)
+                    child_info[ii] = np.array([par_node, np.inf, floc_iter])
+                    dis_flag[ii] = 'x' #Flag for No child created
 
         #Update the active set whenever better solution found
         if floc_iter < UBD:
@@ -788,16 +795,16 @@ class Branch_and_Bound(Driver):
         if disp:
             if (self.iter_count-1) % 25 == 0:
                 # Display output in a tabular format
-                print("="*85)
+                print("="*95)
                 print("%19s%12s%14s%21s" % ("Global", "Parent", "Child1", "Child2"))
-                template = "%s%8s%10s%8s%9s%11s%10s%11s%11s"
+                template = "%s%8s%10s%8s%9s%11s%10s%11s%11s%12s"
                 print(template % ("Iter", "LBD", "UBD", "Node", "Node1", "LBD1",
-                                  "Node2", "LBD2", "Flocal"))
-                print("="*85)
-            template = "%3d%10.2f%10.2f%6d%8d%1s%13.2f%8d%1s%13.2f%9.2f"
+                                  "Node2", "LBD2", "Flocal","Loc_succ"))
+                print("="*95)
+            template = "%3d%10.2f%10.2f%6d%8d%1s%13.2f%8d%1s%13.2f%9.2f%8d"
             print(template % (self.iter_count, LBD, UBD, par_node, child_info[0, 0],
                               dis_flag[0], child_info[0, 1], child_info[1, 0],
-                              dis_flag[1], child_info[1, 1], child_info[1, 2]))
+                              dis_flag[1], child_info[1, 1], child_info[1, 2],l_succ))
 
         return UBD, fopt, xopt, new_nodes
 
@@ -858,13 +865,13 @@ class Branch_and_Bound(Driver):
 
             f = conNegEI + P
 
-            # START OF RADIAL PENALIZATION ADDENDUM
-            pfactor = self.options['penalty_factor']
-            width = self.options['penalty_width']
-            if pfactor != 0:
-                for xbad in self.bad_samples:
-                    xbad_norm = (xbad - obj_surrogate.X_mean.flatten())/obj_surrogate.X_std.flatten()
-                    f += pfactor * np.sum(np.exp(-1./width**2 * (xbad_norm - xval)**2))
+            # # START OF RADIAL PENALIZATION ADDENDUM
+            # pfactor = self.options['penalty_factor']
+            # width = self.options['penalty_width']
+            # if pfactor != 0:
+            #     for xbad in self.bad_samples:
+            #         xbad_norm = (xbad - obj_surrogate.X_mean.flatten())/obj_surrogate.X_std.flatten()
+            #         f += pfactor * np.sum(np.exp(-1./width**2 * (xbad_norm - xval)**2))
             # END OF RADIAL PENALIZATION ADDENDUM
 
         #print(xI, f)
@@ -1403,8 +1410,11 @@ def calc_conEI_norm(xval, obj_surrogate, SSqr=None, y_hat=None):
         SSqr = SigmaSqr*(1.0 - r.T.dot(term0) + \
         ((1.0 - one.T.dot(term0))**2)/(one.T.dot(np.dot(R_inv, one))))
 
-    if abs(SSqr) <= 1.0e-6:
-        NegEI = np.array([0.0])
+    if SSqr <= 1.0e-30:
+        if abs(SSqr) <= 1.0e-30:
+            NegEI = np.array([-0.0])
+        else:
+            NegEI = np.array([-0.01])
     else:
         dy = y_min - y_hat
         SSqr = abs(SSqr)
@@ -1506,7 +1516,7 @@ class nodeHistclass():
 def concave_factor(xI_lb,xI_ub,surrogate):
     xL = (xI_lb - surrogate.X_mean.flatten())/surrogate.X_std.flatten()
     xU = (xI_ub - surrogate.X_mean.flatten())/surrogate.X_std.flatten()
-    per_htm = 0.0
+    per_htm = 5.0
     con_fac = np.zeros((len(xL),))
     for k in range(len(xL)):
         if np.abs(xL[k] - xU[k]) > 1.0e-6:
