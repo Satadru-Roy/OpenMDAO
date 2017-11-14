@@ -403,9 +403,12 @@ class AMIEGO_driver(Driver):
             #------------------------------------------------------------------
             n = len(x_i)
             P = np.zeros((n,1))
-            num_vio = np.zeros((n,1))
-            obj_surr = obj[:]
-            r_pen = 2.0 #TODO Future research
+            #TODO: Scale back the objective to the original Value
+            # As Kriging objective is normalized separately
+            scale_fac_conopt = 1.0e3
+            obj_surr = obj[:]*scale_fac_conopt
+            num_vio = np.zeros((n, 1), dtype=np.int)
+            r_pen = 1.0 #TODO Future research
             for name, val in iteritems(cons):
                 val = np.array(val)
 
@@ -434,21 +437,12 @@ class AMIEGO_driver(Driver):
                             num_vio[ii] += 1
 
             for ii in range(n):
-                if num_vio[ii] > 1.0e-6:
-                    #TODO: Scale back the objective to the original Value
-                    # As Kriging objective is normalized separately
-                    scale_fac_conopt = 1.0e3
-                    obj_surr[ii] = (obj[ii]*scale_fac_conopt)/(1.0 + r_pen*P[ii]/num_vio[ii])
+                if num_vio[ii] > 0:
+                    obj_surr[ii] = obj_surr[ii]/(1.0 + r_pen*P[ii]/num_vio[ii])
 
             obj_surrogate = self.surrogate()
             obj_surrogate.comm = problem.root.comm
             obj_surrogate.use_snopt = True
-            # print('obj_surr',obj_surr)
-            # print(len(obj_surr))
-            # print('obj',obj)
-            # print(len(obj))
-            # import pdb; pdb.set_trace()
-            # obj_surrogate.train(x_i, obj_surr, KPLS_status=True)
             obj_surrogate.train(x_i, obj, KPLS_status=True)
 
             obj_surrogate.y = obj
