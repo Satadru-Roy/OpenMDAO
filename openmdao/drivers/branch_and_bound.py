@@ -22,6 +22,8 @@ from six import iteritems
 from six.moves import range
 from random import uniform
 from pyDOE import *
+import copy
+from time import time
 
 import numpy as np
 from scipy.optimize import minimize
@@ -192,16 +194,18 @@ class Branch_and_Bound(Driver):
                        desc='Penalty weight on objective using radial functions.')
         opt.add_option('penalty_width', 0.5,
                        desc='Penalty width on objective using radial functions.')
-        opt.add_option('trace_iter', 10,
+        opt.add_option('trace_iter', 3,
                        desc='Number of generations to trace back for ubd.')
+        opt.add_option('trace_iter_max', 5,
+                      desc='Number of generations to trace back for ubd.')
         opt.add_option('maxiter_ubd', 10000,
                        desc='Number of generations ubd stays the same')
         opt.add_option('use_surrogate', False,
                        desc='Use surrogate model for the optimization. Training '
                        'data must be supplied.')
-        opt.add_option('local_search', True,
-                        desc='Set to True if local search needs to be performed '
-                        'in step 2.')
+        opt.add_option('local_search', 0,
+                        desc='Set to 0/ 1/ 2 for 0 - GA, 1 - LHS, 2-LHS + SQP '
+                        'for local search to perform in step 2. (Default = 0)')
 
         # Initial Sampling
         # TODO: Somehow slot an object that generates this (LHC for example)
@@ -233,7 +237,7 @@ class Branch_and_Bound(Driver):
 
         # Experimental Options. TODO: could go into Options
         self.load_balance = True
-        self.aggressive_splitting = True
+        self.aggressive_splitting = False
 
     def _setup(self):
         """  Initialize whatever we need."""
@@ -432,9 +436,7 @@ class Branch_and_Bound(Driver):
         xL_iter = self.xI_lb.copy()
         xU_iter = self.xI_ub.copy()
 
-        #TODO: Generate as many LHS samples as number of available procs in parallel
-        # Initial (good) optimal objective and solution
-        num_init_sam = 10*num_des
+        num_init_sam = 1*num_des
         init_sam = lhs(num_des,samples = num_init_sam,criterion='center')
         for ii in range(num_init_sam):
             xopt_ii = np.round(xL_iter + init_sam[ii]*(xU_iter - xL_iter)).reshape(num_des)
@@ -616,63 +618,87 @@ class Branch_and_Bound(Driver):
         con_surrogate = self.con_surrogate
         num_des = len(self.xI_lb)
         trace_iter = self.options['trace_iter']
-
+        trace_iter_max = self.options['trace_iter_max']
+        ga = Genetic_Algorithm()
         new_nodes = []
 
         #Keep this to 0.49 to always round towards bottom-left
         xloc_iter = np.round(xL_iter + 0.49*(xU_iter - xL_iter))
         floc_iter = self.objective_callback(xloc_iter)
         efloc_iter = True
-        # #Sample few more points based on ubd_count and priority_flag
-        # agg_fac = [0.5,1.0,1.5]
-        # ubd_denom = self.options['maxiter_ubd']/len(agg_fac)
-        # num_samples = np.round(agg_fac[int(np.floor(ubd_count/ubd_denom))]*(1 + 3*nodeHist.priority_flag)*3*num_des)
-        num_samples = np.round(np.max([10,np.min([50,num_des/1*nodeHist.priority_flag])])) #TODO Future research
-        init_sam_node = lhs(num_des,samples=num_samples,criterion='center')
-        l_succ = 0
-        for ii in range(int(num_samples)):
-            xloc_iter_new = np.round(xL_iter + init_sam_node[ii]*(xU_iter - xL_iter))
-            floc_iter_new = self.objective_callback(xloc_iter_new)
+        if local_search ==0: #Use SGA
 
-            if local_search:
-                trace_iter = 5
-                if np.abs(floc_iter_new) > -np.inf: #active_tol: #Perform at non-flat starting point
-                    l_succ+=1
-                    #--------------------------------------------------------------
-                    #Step 2: Obtain a local solution
-                    #--------------------------------------------------------------
-                    # Using a gradient-based method here.
-                    # TODO: Make it more pluggable.
-                    def _objcall(dv_dict):
-                        """ Callback function"""
-                        fail = 0
-                        x = dv_dict['x']
-                        # Objective
-                        func_dict = {}
-                        confac_flag = True
-                        func_dict['obj'] = self.objective_callback(x,confac_flag)[0]
-                        return func_dict, fail
-
-                    xC_iter = xloc_iter_new
-                    opt_x, opt_f, succ_flag, msg = snopt_opt2(_objcall, xC_iter, xL_iter, xU_iter, title='LocalSearch',
-                                             options=options)
-
-                    xloc_iter_new = np.round(np.asarray(opt_x).flatten())
-                    floc_iter_new = self.objective_callback(xloc_iter_new)
-
+            bits = np.zeros((num_des,1),dtype = int)
+            bits = np.ceil(np.log2(xU_iter - xL_iter + 1))
+            bits[bits<=0] =1
+            vub_vir = (2**bits - 1) + xL_iter
+            if nodeHist.priority_flag == 1:
+                max_gen=300
+                mfac=6
+            else:
+                max_gen=200
+                mfac=4
+            L = np.sum(bits)
+            pop_size = mfac*L
+            # import pdb; pdb.set_trace()
+            t0 = time()
+            xloc_iter_new, floc_iter_new, nfit = ga.execute_ga(xL_iter, vub_vir, bits, pop_size, max_gen, obj_surrogate,xU_iter)
+            t_GA = time() - t0
+            print(t_GA)
+            # import pdb; pdb.set_trace()
             if floc_iter_new < floc_iter:
                 floc_iter = floc_iter_new
                 xloc_iter = xloc_iter_new
+        elif local_search == 1 or local_search == 2: # 1-Just do LHS sampling,2-Do a local search using snopt
+            # #Sample few more points based on ubd_count and priority_flag
+            # agg_fac = [0.5,1.0,1.5]
+            # ubd_denom = self.options['maxiter_ubd']/len(agg_fac)
+            # num_samples = np.round(agg_fac[int(np.floor(ubd_count/ubd_denom))]*(1 + 3*nodeHist.priority_flag)*3*num_des)
+            num_samples = np.round(np.max([10,np.min([50,num_des/1*nodeHist.priority_flag])])) #TODO Future research
+            init_sam_node = lhs(num_des,samples=num_samples,criterion='center')
+            l_succ = 0
+            for ii in range(int(num_samples)):
+                xloc_iter_new = np.round(xL_iter + init_sam_node[ii]*(xU_iter - xL_iter))
+                floc_iter_new = self.objective_callback(xloc_iter_new)
+
+                if local_search == 2:
+                    if np.abs(floc_iter_new) > -np.inf: #active_tol: #Perform at non-flat starting point
+                        l_succ+=1
+                        #--------------------------------------------------------------
+                        #Step 2: Obtain a local solution
+                        #--------------------------------------------------------------
+                        # Using a gradient-based method here.
+                        # TODO: Make it more pluggable.
+                        def _objcall(dv_dict):
+                            """ Callback function"""
+                            fail = 0
+                            x = dv_dict['x']
+                            # Objective
+                            func_dict = {}
+                            confac_flag = False
+                            func_dict['obj'] = self.objective_callback(x,confac_flag)[0]
+                            return func_dict, fail
+
+                        xC_iter = xloc_iter_new
+                        opt_x, opt_f, succ_flag, msg = snopt_opt2(_objcall, xC_iter, xL_iter, xU_iter, title='LocalSearch',
+                                                 options=options)
+
+                        xloc_iter_new = np.round(np.asarray(opt_x).flatten())
+                        floc_iter_new = self.objective_callback(xloc_iter_new)
+
+                if floc_iter_new < floc_iter:
+                    floc_iter = floc_iter_new
+                    xloc_iter = xloc_iter_new
 
         # Do some prechecks before commencing for partitioning
         ubdloc_best = nodeHist.ubdloc_best
         if nodeHist.ubdloc_best > floc_iter + 1.0e-6:
-            ubd_track = np.concatenate((nodeHist.ubd_track,np.array([1])),axis=0)
+            ubd_track = np.concatenate((nodeHist.ubd_track,np.array([0])),axis=0)
             ubdloc_best = floc_iter
         else:
-            ubd_track = np.concatenate((nodeHist.ubd_track,np.array([0])),axis=0)
+            ubd_track = np.concatenate((nodeHist.ubd_track,np.array([1])),axis=0)
         # diff_LBD = abs(LBD_prev - LBD_NegConEI)
-        if len(ubd_track) >= trace_iter and np.sum(ubd_track[-trace_iter:])==0: #and UBD<=-1.0e-3:
+        if len(ubd_track) >= trace_iter_max or (len(ubd_track) >= trace_iter and np.sum(ubd_track[-trace_iter:])==0): #and UBD<=-1.0e-3:
             child_info = np.array([[par_node, np.inf, floc_iter],[par_node, np.inf, floc_iter]])
             dis_flag = ['Y', 'Y'] #Fathomed due to no change in UBD_loc for 'trace_iter' generations
         else:
@@ -764,8 +790,10 @@ class Branch_and_Bound(Driver):
                     # lower than the UBD.
                     #--------------------------------------------------------------
 
-                    priority_flag = np.ceil(abs(UBD - LBD_NegConEI))
-
+                    priority_flag = 0
+                    if LBD_NegConEI < np.inf and LBD_prev < np.inf:
+                        if np.abs((LBD_prev - LBD_NegConEI)/LBD_prev) < 0.005:
+                            priority_flag = 1
                     nodeHist_new = nodeHistclass()
                     nodeHist_new.ubd_track = ubd_track
                     nodeHist_new.ubdloc_best = ubdloc_best
@@ -797,14 +825,14 @@ class Branch_and_Bound(Driver):
                 # Display output in a tabular format
                 print("="*95)
                 print("%19s%12s%14s%21s" % ("Global", "Parent", "Child1", "Child2"))
-                template = "%s%8s%10s%8s%9s%11s%10s%11s%11s%12s"
+                template = "%s%8s%10s%8s%9s%11s%10s%11s%11s%11s"
                 print(template % ("Iter", "LBD", "UBD", "Node", "Node1", "LBD1",
-                                  "Node2", "LBD2", "Flocal","Loc_succ"))
+                                  "Node2", "LBD2", "Flocal","GA time"))
                 print("="*95)
-            template = "%3d%10.2f%10.2f%6d%8d%1s%13.2f%8d%1s%13.2f%9.2f%8d"
+            template = "%3d%10.2f%10.2f%6d%8d%1s%13.2f%8d%1s%13.2f%9.2f%9.2f"
             print(template % (self.iter_count, LBD, UBD, par_node, child_info[0, 0],
                               dis_flag[0], child_info[0, 1], child_info[1, 0],
-                              dis_flag[1], child_info[1, 1], child_info[1, 2],l_succ))
+                              dis_flag[1], child_info[1, 1], child_info[1, 2], t_GA))
 
         return UBD, fopt, xopt, new_nodes
 
@@ -857,11 +885,11 @@ class Branch_and_Bound(Driver):
                 conNegEI = NegEI
 
             P = 0.0
-            # if self.options['concave_EI']: #Locally makes ei concave to get rid of flat objective space
-            if con_EI:
-                con_fac = self.con_fac
-                for ii in range(k):
-                    P += con_fac[ii]*(lb[ii] - xval[ii])*(ub[ii] - xval[ii])
+            # # if self.options['concave_EI']: #Locally makes ei concave to get rid of flat objective space
+            # if con_EI:
+            #     con_fac = self.con_fac
+            #     for ii in range(k):
+            #         P += con_fac[ii]*(lb[ii] - xval[ii])*(ub[ii] - xval[ii])
 
             f = conNegEI + P
 
@@ -1526,3 +1554,148 @@ def concave_factor(xI_lb,xI_ub,surrogate):
             con_fac[k] = h_req/h_act
     # print(con_fac)
     return con_fac
+
+class Genetic_Algorithm():
+    ''' This is the Simple Genetic Algorithm implementation
+    based on 2009 AAE550: MDO Lecture notes of
+    Prof. William A. Crossley'''
+
+    def execute_ga(self, vlb, vub, bits, pop_size, max_gen, surrogate, xU_iter):
+        nfit = 0
+        xopt = copy.deepcopy(vlb)
+        fopt = np.inf
+        Pc = 0.5
+        self.lchrom = int(np.sum(bits))
+        if np.mod(pop_size,2) == 1:
+            pop_size += 1
+        self.npop = int(pop_size)
+        fitness = np.zeros((self.npop,1))
+        Pm = (self.lchrom + 1.0) / (2.0 * pop_size * np.sum(bits))
+        elite = 1
+        # new_gen = 1 - np.round(np.random.rand(self.npop,self.lchrom))
+        new_gen = np.round(lhs(self.lchrom,self.npop,criterion='center'))
+        # new_gen, lchrom = encode(x0, vlb, vub, bits) #TODO: from an user-supplied intial population
+        for generation in range(max_gen+1):
+            old_gen = copy.deepcopy(new_gen)
+            x_pop  = self.decode(old_gen, vlb, vub, bits)
+            for ii in range(self.npop):
+                x = x_pop[ii]
+                fitness[ii] = self.eval_GA_objfunc(x, surrogate, xU_iter)
+                # fitness[ii] = self.test_func(x)
+                nfit += 1
+            max_index = np.argmax(fitness)
+            if generation > 0:
+                min_fit_prev = min_fit
+                min_gen_prev = min_gen
+                min_x_prev = min_x
+                if elite > 0:
+                    old_gen[max_index] = min_gen_prev
+                    x_pop[max_index] = min_x_prev
+                    fitness[max_index] = min_fit_prev
+            min_fit = np.min(fitness)
+            min_index = np.argmin(fitness)
+            min_gen = old_gen[min_index]
+            min_x = x_pop[min_index]
+            if min_fit < fopt:
+                fopt = min_fit
+                xopt = min_x
+            new_gen = self.tournament(old_gen, fitness)
+            new_gen = self.crossover(new_gen, Pc)
+            new_gen = self.mutate(new_gen, Pm)
+        return xopt, fopt, nfit
+
+    def tournament(self, old_gen, fitness):
+        # nselected = np.zeros((self.npop,1))
+        i_old_gen = np.array(range(self.npop))
+        new_gen  =[]
+        for j in range(2):
+            old_gen, i_shuffled = self.shuffle(old_gen)
+            fitness = fitness[i_shuffled]
+            i_old_gen = i_old_gen[i_shuffled]
+            index = np.array(range(0, self.npop-1, 2))
+            i_min = np.zeros((len(index),1))
+            for ii in range(len(index)):
+                i_min[ii] = np.argmin(np.array([fitness[index[ii]],fitness[index[ii]+1]]))
+            selected = i_min.flatten() + range(0, self.npop-1, 2)
+            for ii in range(len(selected)):
+                if j == 0 and ii == 0:
+                    new_gen = np.array([old_gen[int(selected[ii])]]) #np.concatenate((new_gen,old_gen[selected[ii]]),axis = 0)
+                else:
+                    new_gen = np.append(new_gen,np.array([old_gen[int(selected[ii])]]),axis=0)
+        return new_gen
+
+    def crossover(self, old_gen, Pc):
+        new_gen = copy.deepcopy(old_gen)
+        sites = np.random.rand(self.npop/2, self.lchrom)
+        for i in range(self.npop/2):
+            for j in range(self.lchrom):
+                if sites[i][j] < Pc:
+                    new_gen[2*i][j] = old_gen[2*i+1][j]
+                    new_gen[2*i+1][j] = old_gen[2*i][j]
+        return new_gen
+
+    def mutate(self, old_gen, Pm):
+        temp = np.random.rand(self.npop,self.lchrom)
+        new_gen = copy.deepcopy(old_gen)
+        for ii in range(self.npop):
+            for jj in range(self.lchrom):
+                if temp[ii][jj] < Pm:
+                    new_gen[ii][jj] = 1 - old_gen[ii][jj]
+        return new_gen
+
+    def shuffle(self, old_gen):
+        new_gen = copy.deepcopy(old_gen)
+        temp = np.random.rand(self.npop,1)
+        index = np.argsort(np.sort(temp), axis = 0).flatten()
+        for ii in range(len(index)):
+            new_gen[ii] = old_gen[index[ii]]
+        return new_gen, index
+
+    def decode(self, gen, vlb, vub, bits):
+        no_para = len(bits)
+        coarse = (vub - vlb)/(2**bits - 1.0)
+        x = np.zeros((self.npop,no_para))
+        for K in range(self.npop):
+            sbit = 1
+            ebit = 0
+            for J in range(no_para):
+                ebit = int(bits[J]) + ebit
+                accum = 0.0
+                ADD = 1
+                for I in range(sbit,ebit+1):
+                    pbit = I + 1 - sbit
+                    if gen[K][I-1] == 1:
+                        if ADD == 1:
+                            accum = accum + (2.0**(bits[J]-pbit + 1.0) - 1.0)
+                            ADD = 0
+                        else:
+                            accum = accum - (2.0**(bits[J]-pbit + 1.0) - 1.0)
+                            ADD = 1
+                x[K][J] = accum*coarse[J] + vlb[J]
+                sbit = ebit + 1
+        return x
+
+    def encode(self, x, vlb, vub, bits):
+        return
+
+    def test_func(self, x):
+        ''' Solution: xopt = [0.2857, -0.8571], fopt = 23.2933'''
+        A = (2*x[0] - 3*x[1])**2;
+        B = 18 - 32*x[0] + 12*x[0]**2 + 48*x[1] - 36*x[0]*x[1] + 27*x[1]**2;
+        C = (x[0] + x[1] + 1)**2;
+        D = 19 - 14*x[0] + 3*x[0]**2 - 14*x[1] + 6*x[0]*x[1] + 3*x[1]**2;
+
+        f = (30 + A*B)*(1 + C*D);
+        return f
+
+    def eval_GA_objfunc(self, x, surrogate, xU_iter):
+        num_des = len(x)
+        P=0.0
+        rp = 100.0
+        for ii in range(num_des):
+            g = (x[ii]/xU_iter[ii]) - 1.0
+            P += np.max([0,g])**2
+        xval = (x - surrogate.X_mean.flatten())/surrogate.X_std.flatten()
+        NegEI = calc_conEI_norm(xval, surrogate)
+        f = NegEI + rp*P
+        return f
