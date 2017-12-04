@@ -408,7 +408,7 @@ class AMIEGO_driver(Driver):
             scale_fac_conopt = np.array([1.0e3])
             obj_surr = obj[:]*scale_fac_conopt
             num_vio = np.zeros((n, 1), dtype=np.int)
-            r_pen = 1.0 #TODO Future research
+            r_pen = 0.01 #TODO Future research
             for name, val in iteritems(cons):
                 val = np.array(val)
 
@@ -443,9 +443,9 @@ class AMIEGO_driver(Driver):
             obj_surrogate = self.surrogate()
             obj_surrogate.comm = problem.root.comm
             obj_surrogate.use_snopt = True
-            obj_surrogate.train(x_i, obj, KPLS_status=True)
+            obj_surrogate.train(x_i, obj_surr, KPLS_status=True)
 
-            obj_surrogate.y = obj
+            obj_surrogate.y = obj_surr
             obj_surrogate.lb_org = xI_lb
             obj_surrogate.ub_org = xI_ub
             obj_surrogate.lb = np.zeros((n_i))

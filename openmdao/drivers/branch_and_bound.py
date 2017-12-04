@@ -194,7 +194,7 @@ class Branch_and_Bound(Driver):
                        desc='Penalty weight on objective using radial functions.')
         opt.add_option('penalty_width', 0.5,
                        desc='Penalty width on objective using radial functions.')
-        opt.add_option('trace_iter', 3,
+        opt.add_option('trace_iter', 4,
                        desc='Number of generations to trace back for ubd.')
         opt.add_option('trace_iter_max', 5,
                       desc='Number of generations to trace back for ubd.')
@@ -627,8 +627,8 @@ class Branch_and_Bound(Driver):
         floc_iter = self.objective_callback(xloc_iter)
         efloc_iter = True
         if local_search ==0: #Use SGA
-
-            bits = np.zeros((num_des,1),dtype = int)
+            t0 = time()
+            bits = np.zeros((num_des,1),dtype = np.int)
             bits = np.ceil(np.log2(xU_iter - xL_iter + 1))
             bits[bits<=0] =1
             vub_vir = (2**bits - 1) + xL_iter
@@ -640,12 +640,8 @@ class Branch_and_Bound(Driver):
                 mfac=4
             L = np.sum(bits)
             pop_size = mfac*L
-            # import pdb; pdb.set_trace()
-            t0 = time()
             xloc_iter_new, floc_iter_new, nfit = ga.execute_ga(xL_iter, vub_vir, bits, pop_size, max_gen, obj_surrogate,xU_iter)
             t_GA = time() - t0
-            print(t_GA)
-            # import pdb; pdb.set_trace()
             if floc_iter_new < floc_iter:
                 floc_iter = floc_iter_new
                 xloc_iter = xloc_iter_new
