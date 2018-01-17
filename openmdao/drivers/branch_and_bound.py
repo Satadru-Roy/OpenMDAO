@@ -194,7 +194,7 @@ class Branch_and_Bound(Driver):
                        desc='Penalty weight on objective using radial functions.')
         opt.add_option('penalty_width', 0.5,
                        desc='Penalty width on objective using radial functions.')
-        opt.add_option('trace_iter', 4,
+        opt.add_option('trace_iter', 3,
                        desc='Number of generations to trace back for ubd.')
         opt.add_option('trace_iter_max', 5,
                       desc='Number of generations to trace back for ubd.')
@@ -350,7 +350,7 @@ class Branch_and_Bound(Driver):
             self.obj_surrogate = obj_surrogate = self.surrogate()
             obj_surrogate.use_snopt = True
             obj_surrogate.train(x_i_hat, obj, KPLS_status=True)
-            obj_surrogate.y = obj
+            # obj_surrogate.y = obj
             obj_surrogate.lb_org = self.xI_lb
             obj_surrogate.ub_org = self.xI_ub
             obj_surrogate.lb = np.zeros((n_i))

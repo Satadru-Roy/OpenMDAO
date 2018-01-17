@@ -404,11 +404,23 @@ class AMIEGO_driver(Driver):
             n = len(x_i)
             P = np.zeros((n,1))
             #TODO: Scale back the objective to the original Value
-            # As Kriging objective is normalized separately
-            scale_fac_conopt = np.array([1.0e3])
+            scale_fac_conopt = np.array([1.0e3]) #TODO; This should come from objective component
             obj_surr = obj[:]*scale_fac_conopt
             num_vio = np.zeros((n, 1), dtype=np.int)
-            r_pen = 0.01 #TODO Future research
+            r_pen = 2.0 #TODO Future research
+            print(r_pen)
+
+            # Normalize the data
+            X_mean = np.mean(x_i, axis=0)
+            X_std = np.std(x_i, axis=0)
+            X_std[X_std == 0.] = 1.
+
+            Y_mean = np.mean(obj_surr, axis=0)
+            Y_std = np.std(obj_surr, axis=0)
+            Y_std[Y_std == 0.] = 1.
+
+            X = (x_i - X_mean) / X_std
+            Y = (obj_surr - Y_mean) / Y_std
             for name, val in iteritems(cons):
                 val = np.array(val)
 
@@ -428,31 +440,39 @@ class AMIEGO_driver(Driver):
                     val_u = val - upper
                     val_l = lower - val
 
-                # Newly added to make the problem appear unconstrained to Amiego
+                # Makes the problem appear unconstrained to AMIEGO
                 M = val.shape[1]
+                g_mean = np.mean(val,axis=0)
+                g_std = np.std(val,axis=0)
+                g_std[g_std == 0.] = 1.0
+                g_norm_ub = (1.0e-6 - g_mean)/g_std
+                g_norm = (val - g_mean)/g_std
                 for ii in range(n):
                     for mm in range(M):
-                        if val[ii][mm] > 0:
-                            P[ii] += (val[ii][mm])**2
+                        g_vio = (g_norm[ii][mm] - g_norm_ub[mm])
+                        if g_vio > 0.0:
+                            P[ii] += g_vio**2
                             num_vio[ii] += 1
 
             for ii in range(n):
                 if num_vio[ii] > 0:
-                    obj_surr[ii] = obj_surr[ii]/(1.0 + r_pen*P[ii]/num_vio[ii])
+                    Y[ii] += (r_pen*P[ii]/num_vio[ii])
+                    # Y[ii] += r_pen*P[ii]
 
             obj_surrogate = self.surrogate()
             obj_surrogate.comm = problem.root.comm
             obj_surrogate.use_snopt = True
-            obj_surrogate.train(x_i, obj_surr, KPLS_status=True)
 
-            obj_surrogate.y = obj_surr
+            obj_surrogate.X, obj_surrogate.X_mean, obj_surrogate.X_std = X, X_mean, X_std
+            obj_surrogate.Y, obj_surrogate.Y_mean, obj_surrogate.Y_std = Y, Y_mean, Y_std
+            obj_surrogate.train(X, Y, KPLS_status=True, norm_data=True)
+            # obj_surrogate.y = obj_surr
             obj_surrogate.lb_org = xI_lb
             obj_surrogate.ub_org = xI_ub
             obj_surrogate.lb = np.zeros((n_i))
             obj_surrogate.ub = np.zeros((n_i))
             best_obj_norm = (best_obj - obj_surrogate.Y_mean)/obj_surrogate.Y_std
             con_surrogate = []
-
             if disp:
                 print("\nSurrogate building of the objective is complete...")
                 print('Elapsed Time:', time() - t0)
